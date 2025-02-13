@@ -208,12 +208,15 @@ fn current_timestamp_as_i64() -> i64 {
 }
 
 #[cfg(feature = "memstore")]
-//TODO: this is only for testing purposes
 pub async fn start_follow_chain(
     store: Arc<ChainStore>,
     req: StartSyncRequest,
-) -> anyhow::Result<tokio::sync::broadcast::Receiver<Beacon>> {
-    let info = info_from_peers(req.metadata.beacon_id, req.nodes.clone()).await?;
+) -> anyhow::Result<
+    tokio::sync::mpsc::Receiver<Result<crate::protobuf::drand::SyncProgress, tonic::Status>>,
+> {
+    use crate::protobuf::drand::SyncProgress;
+
+    let info = info_from_peers(req.metadata.clone().beacon_id, req.nodes.clone()).await?;
 
     let genesis_seed = info.group_hash.clone();
 
@@ -258,7 +261,22 @@ pub async fn start_follow_chain(
         )
         .await?;
 
-    Ok(beacon_rx)
+    let (progress_tx, mut progress_rx) =
+        tokio::sync::mpsc::channel::<Result<SyncProgress, tonic::Status>>(1024);
+
+    tokio::spawn(async move {
+        while let Ok(beacon) = beacon_rx.recv().await {
+            let progress = SyncProgress {
+                current: beacon.round,
+                target: req.up_to,
+                metadata: Some(req.metadata.clone()),
+            };
+
+            progress_tx.send(Ok(progress)).await.unwrap();
+        }
+    });
+
+    Ok(progress_rx)
 }
 
 pub async fn info_from_peers(

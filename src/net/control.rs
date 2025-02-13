@@ -1,5 +1,6 @@
 //! This module provides client and server implementations for Control.
 
+use crate::core::sync_manager::start_follow_chain;
 use crate::net::utils::ConnectionError;
 use crate::net::utils::NewTcpListener;
 use crate::net::utils::StartServerError;
@@ -8,6 +9,7 @@ use crate::net::utils::ERR_METADATA_IS_MISSING;
 
 use crate::core::daemon::Daemon;
 use crate::protobuf::drand as protobuf;
+use crate::store::memstore::MemStore;
 
 use protobuf::control_client::ControlClient as _ControlClient;
 use protobuf::control_server::Control;
@@ -36,6 +38,7 @@ use protobuf::StatusRequest;
 use protobuf::StatusResponse;
 use protobuf::SyncProgress;
 
+use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::transport::Channel;
 use tonic::transport::Server;
 use tonic::Request;
@@ -51,7 +54,6 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio_stream::wrappers::TcpListenerStream;
-use tokio_stream::Stream;
 
 type ResponseStream = std::pin::Pin<Box<dyn Stream<Item = Result<SyncProgress, Status>> + Send>>;
 
@@ -190,8 +192,22 @@ impl Control for ControlHandler {
         &self,
         _request: Request<StartSyncRequest>,
     ) -> Result<Response<Self::StartFollowChainStream>, Status> {
-        Err(Status::unimplemented(
-            "start_follow_chain: StartSyncRequest",
+        let req = _request.into_inner();
+
+        let req = crate::transport::drand::StartSyncRequest {
+            nodes: req.nodes,
+            up_to: req.up_to,
+            metadata: req.metadata.unwrap(),
+        };
+
+        let store = Arc::new(MemStore::new(true));
+
+        let rx = start_follow_chain(store, req).await.unwrap();
+
+        let out_stream = ReceiverStream::new(rx);
+
+        Ok(Response::new(
+            Box::pin(out_stream) as Self::StartFollowChainStream
         ))
     }
 
