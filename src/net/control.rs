@@ -194,12 +194,6 @@ impl Control for ControlHandler {
     ) -> Result<Response<Self::StartFollowChainStream>, Status> {
         let req = _request.into_inner();
 
-        let req = crate::transport::drand::StartSyncRequest {
-            nodes: req.nodes,
-            up_to: req.up_to,
-            metadata: req.metadata.unwrap(),
-        };
-
         let store = Arc::new(MemStore::new(true));
 
         let rx = start_follow_chain(store, req).await.unwrap();
