@@ -6,8 +6,8 @@ use tracing::{debug, error, warn};
 use crate::{
     net::utils::Address,
     protobuf::drand::{protocol_client::ProtocolClient, ChainInfoPacket, Metadata},
+    protobuf::drand::{StartSyncRequest, SyncRequest},
     store::{AppendStore, Beacon, ChainStore, StorageError, Store},
-    transport::drand::{StartSyncRequest, SyncRequest},
 };
 
 pub struct SyncManager {
@@ -71,10 +71,10 @@ impl SyncManager {
 
         let req = SyncRequest {
             from_round: from,
-            metadata: Metadata {
+            metadata: Some(Metadata {
                 beacon_id: self.info.metadata.as_ref().unwrap().beacon_id.clone(),
                 ..Default::default()
-            },
+            }),
         };
 
         let mut c = match ProtocolClient::connect(addr.to_uri()).await {
@@ -216,7 +216,7 @@ pub async fn start_follow_chain(
 > {
     use crate::protobuf::drand::SyncProgress;
 
-    let info = info_from_peers(req.metadata.clone().beacon_id, req.nodes.clone()).await?;
+    let info = info_from_peers(req.metadata.clone().unwrap().beacon_id, req.nodes.clone()).await?;
 
     let genesis_seed = info.group_hash.clone();
 
@@ -261,7 +261,7 @@ pub async fn start_follow_chain(
         )
         .await?;
 
-    let (progress_tx, mut progress_rx) =
+    let (progress_tx, progress_rx) =
         tokio::sync::mpsc::channel::<Result<SyncProgress, tonic::Status>>(1024);
 
     tokio::spawn(async move {
@@ -269,7 +269,7 @@ pub async fn start_follow_chain(
             let progress = SyncProgress {
                 current: beacon.round,
                 target: req.up_to,
-                metadata: Some(req.metadata.clone()),
+                metadata: req.metadata.clone(),
             };
 
             progress_tx.send(Ok(progress)).await.unwrap();
